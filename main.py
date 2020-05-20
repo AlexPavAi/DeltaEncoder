@@ -1,12 +1,13 @@
-# © Copyright IBM Corp. 2019
-
 
 import pickle
 from deltaencoder import DeltaEncoder
 
 
+
 ########### Load Data ################
-features_train, labels_train, features_test, labels_test, episodes_1shot, episodes_5shot = pickle.load(open('data/mIN.pkl','rb'))
+# features_train, labels_train, features_test, labels_test, episodes_1shot, episodes_5shot = pickle.load(open('data/mIN.pkl','rb'))
+with open('../mIN.pkl', 'rb') as f:
+    features_train, labels_train, features_test, labels_test, episodes_1shot, episodes_5shot = pickle.load(f, encoding="bytes")
 
 # features_train/features_test are features extracted from some backbone (resnet18); they are np array with size = (N,D), where N is the number of samples and D the features dimensions
 # labels_train/labels_test are one hot GT labels with size = (N,C), where C is the number of classes (can be different for train and test sets

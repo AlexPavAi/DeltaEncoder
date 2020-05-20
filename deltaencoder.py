@@ -1,4 +1,3 @@
-# © Copyright IBM Corp. 2019
 
 from __future__ import print_function
 import numpy as np
@@ -117,8 +116,9 @@ class linear_classifier(object):
     
 class DeltaEncoder(object):
     def __init__(self, args, features, labels, features_test, labels_test, episodes, resume = ''):
-        tf.reset_default_graph()
-        
+        # tf.reset_default_graph()
+        from tensorflow.python.framework import ops
+        ops.reset_default_graph()
         self.count_data = 0
         self.num_epoch = args['num_epoch']
         self.noise_size = args['noise_size']
@@ -143,12 +143,11 @@ class DeltaEncoder(object):
         self.features_test, self.labels_test = features_test, labels_test
         self.episodes = episodes
 
+        self.features_dim = self.features.shape[1]  # 1024
+        self.reference_features = self.random_pairs(self.features, self.labels)  # random order of feature vector (random within same class)
 
-        self.features_dim = self.features.shape[1]    
-        self.reference_features = self.random_pairs(self.features, self.labels)
 
 
-        
         # discriminator input => image features
         self.x_pl = tf.placeholder(tf.float32, shape=(None, self.features_dim))
         self.z_pl = tf.placeholder(tf.float32, shape=(None, self.noise_size))
@@ -162,6 +161,7 @@ class DeltaEncoder(object):
 
     
      # assign pairs with the same labels
+    # for each group of images with same class label, rearrange the order of images in a random order
     def random_pairs(self,X, labels):
         Y = X.copy()
         for l in range(labels.shape[1]):
@@ -173,7 +173,7 @@ class DeltaEncoder(object):
     def _create_model(self):
 
         with tf.variable_scope('E'):
-            self.pred_noise = self.encoder(self.x_pl, self.reference_features_pl)
+            self.pred_noise = self.encoder(self.x_pl, self.reference_features_pl)  # encodes other + reference
 
         with tf.variable_scope('D') as scope:
             self.pred_x = self.decoder(self.reference_features_pl, self.pred_noise)
@@ -181,7 +181,8 @@ class DeltaEncoder(object):
             self.decode = self.decoder(self.reference_features_pl, self.z_pl)
 
         abs_diff = tf.losses.absolute_difference(self.x_pl[:,:self.features_dim],
-                                                 self.pred_x,reduction=tf.losses.Reduction.NONE)
+                                                 self.pred_x,reduction=tf.losses.Reduction.NONE)  # difference between
+        # "other" (not reference input) with the output of the decoder of(reference + z).
         
         k = 2.0 
         w = tf.pow(abs_diff,tf.fill([self.batch_size_pl, self.features_dim], k))
@@ -198,20 +199,21 @@ class DeltaEncoder(object):
         features = tf.nn.dropout(features, 1.0-self.drop_out_rate_input_pl)
         input = tf.concat([features, reference_features], 1)
         for i, size in enumerate(self.encoder_size):
-            input_lin, w, b = self.linear(input, size, name='e'+str(i))
-            input = tf.nn.dropout(self.lrelu(input_lin), 1.0-self.drop_out_rate_pl)
-        h, w, b = self.linear(input, self.noise_size, name='e'+str(len(self.encoder_size)))
+            input_lin, w, b = self.linear(input, size, name='e'+str(i))  # output size = 4096
+            input = tf.nn.dropout(self.lrelu(input_lin), 1.0-self.drop_out_rate_pl)  # output size = 4096 after activation + dropout
+        h, w, b = self.linear(input, self.noise_size, name='e'+str(len(self.encoder_size)))  # output size = 16
         return h
 
-    def decoder(self, reference_features, code):
-        input = tf.concat([reference_features, code], 1)
+    def decoder(self, reference_features, code):  # code is z
+        input = tf.concat([reference_features, code], 1)  # pay attention: reference image is the left one
         for i, size in enumerate(self.decoder_size):
-            input_lin, w, b = self.linear(input, size, name='d'+str(i))
-            input = tf.nn.dropout(self.lrelu(input_lin), 1.0-self.drop_out_rate_pl)
-        h, w, b = self.linear(input, self.features.shape[1], name='d'+str(len(self.decoder_size)))
+            input_lin, w, b = self.linear(input, size, name='d'+str(i))  # 4096
+            input = tf.nn.dropout(self.lrelu(input_lin), 1.0-self.drop_out_rate_pl)  # 4096
+        h, w, b = self.linear(input, self.features.shape[1], name='d'+str(len(self.decoder_size))) # feature vector
               
         return h
-    
+
+    # calculates a linear function of the input with respect to w,b, and the output size will be output_dim
     def linear(self, input, output_dim, name=None, stddev=0.01):
         print(name)
         with tf.variable_scope(name or 'linear'):
@@ -234,7 +236,7 @@ class DeltaEncoder(object):
         optimizer = tf.train.AdamOptimizer(lr).minimize(loss, global_step=batch)
         return optimizer
 
-    def next_batch(self, start, end):
+    def next_batch(self, start, end):  # TODO: CHANGE NEXT PAIRS TO RELEVANT ONES
         if start == 0:
             if self.num_shots:
                 self.reference_features = self.random_pairs(self.features, self.labels)
@@ -284,7 +286,7 @@ class DeltaEncoder(object):
                         print("AE learning rate decay: ", self.learning_rate)
                 else:
                     last_loss_epoch = mean_loss_e
-                    
+                    ##
                 acc = self.val()
                 if acc > self.best_acc:
                     if self.best_acc != 0.0:
@@ -302,21 +304,24 @@ class DeltaEncoder(object):
             return self.best_acc
         
     def generate_samples(self, reference_features_class, labels_class, nb_ex):
+        nb_ex = int(nb_ex)  # 1024
         iterations = 0
-        features = np.zeros((nb_ex * labels_class.shape[0], self.features.shape[1]))
-        labels = np.zeros((nb_ex * labels_class.shape[0], labels_class.shape[1]))
-        reference_features = np.zeros((nb_ex * labels_class.shape[0], self.reference_features.shape[1]))
-        for c in xrange(labels_class.shape[0]):
+        features = np.zeros((int(nb_ex * labels_class.shape[0]), int(self.features.shape[1]))) # (1024 * 48K, 2048)
+        labels = np.zeros((int(nb_ex * labels_class.shape[0]), int(labels_class.shape[1]))) # (1024 * 48K, 100)
+        reference_features = np.zeros((int(nb_ex * labels_class.shape[0]), int(self.reference_features.shape[1]))) # (1024 * 48K, 2048)
+        for c in xrange(labels_class.shape[0]):  # 48K
             if True: #sample "noise" from training set
-                inds = np.random.permutation(xrange(self.features.shape[0]))[:nb_ex]
-                noise = self.session.run(self.pred_noise, {
-                            self.x_pl:  self.features[inds,...],
-                            self.reference_features_pl:  self.reference_features[inds,...],
+                ## encodes 1024 random feature vectors of reference + other. reference and other are changing every time.
+                inds = np.random.permutation(xrange(self.features.shape[0]))[:nb_ex]  # choose random 1024 indices
+                noise = self.session.run(self.pred_noise, {   ## call encoding function on the following:
+                            self.x_pl:  self.features[inds,...],   ## other: features at specific indices
+                            self.reference_features_pl:  self.reference_features[inds,...],   ## reference: features at specific indices
                             self.drop_out_rate_input_pl: 0.0,
                             self.drop_out_rate_pl: 0.0})
             else:
                 noise = np.random.normal(0, 1, (nb_ex, self.noise_size))
-                                
+
+            ## 1024 feature vectors are being generated from noise + reference, by the decoder
             features[c * nb_ex:(c * nb_ex) + nb_ex] = self.session.run(self.decode, {
                 self.z_pl:  noise,
                 self.reference_features_pl: np.tile(reference_features_class[c], (nb_ex, 1)),
@@ -365,13 +370,16 @@ class DeltaEncoder(object):
 
     def lrelu(self, x, leak=0.2, name="lrelu"):
         return tf.maximum(x, leak * x)
-
+##
     def save_npy(self, sess, npy_path):
+        # if not os.path.exists(npy_path):
+        #     os.makedirs(npy_path)
         assert isinstance(sess, tf.Session)
         data_dict = {}
         for (name, idx), var in self.save_var_dict.items():
             var_out = sess.run(var)
-            if not data_dict.has_key(name):
+            # if not data_dict.has_key(name):
+            if not name in data_dict:
                 data_dict[name] = {}
             data_dict[name][idx] = var_out
 
