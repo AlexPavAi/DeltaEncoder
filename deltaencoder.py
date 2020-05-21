@@ -236,7 +236,7 @@ class DeltaEncoder(object):
         optimizer = tf.train.AdamOptimizer(lr).minimize(loss, global_step=batch)
         return optimizer
 
-    def next_batch(self, start, end):  # TODO: CHANGE NEXT PAIRS TO RELEVANT ONES
+    def next_batch(self, start, end):
         if start == 0:
             if self.num_shots:
                 self.reference_features = self.random_pairs(self.features, self.labels)
@@ -287,19 +287,22 @@ class DeltaEncoder(object):
                 else:
                     last_loss_epoch = mean_loss_e
                     ##
-                acc = self.val()
-                if acc > self.best_acc:
-                    if self.best_acc != 0.0:
-                        os.remove(self.last_file_name + ".npy")
-                    self.best_acc = acc
-                    self.last_file_name = "model_weights/" + self.name  + '_' \
-                                            + str(self.num_shots) + '_shot_' \
-                                            + str(np.around(self.best_acc, decimals=2)) + '_acc'      
-                    self.save_npy(self.session, self.last_file_name)
-                    print('epoch {}: Higher unseen classes accuracy reached: {} (Saved in {}.npy)'.format(epoch+1, acc, self.last_file_name))
-                else:
-                    print('epoch {}: Lower unseen classes accuracy reached: {} (<={})'.format(epoch+1, acc,self.best_acc))    
-                print("-----")
+                # acc = self.val()
+                # if acc > self.best_acc:
+                #     if self.best_acc != 0.0:
+                os.remove(self.last_file_name + ".npy")
+                    #self.best_acc = acc
+                    # self.last_file_name = "model_weights/" + self.name  + '_' \
+                    #                         + str(self.num_shots) + '_shot_' \
+                    #                         + str(np.around(self.best_acc, decimals=2)) + '_acc'
+                self.last_file_name = "model_weights/" + self.name + '_' \
+                                        + str(self.num_shots) + '_shot_'
+                self.save_npy(self.session, self.last_file_name)
+                print("model saved_epoch_"+str(epoch))
+                #print('epoch {}: Higher unseen classes accuracy reached: {} (Saved in {}.npy)'.format(epoch+1, acc, self.last_file_name))
+                # else:
+                #     print('epoch {}: Lower unseen classes accuracy reached: {} (<={})'.format(epoch+1, acc,self.best_acc))
+                # print("-----")
             self.session.close()
             return self.best_acc
         
